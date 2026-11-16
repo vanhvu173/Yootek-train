@@ -1,105 +1,141 @@
-#include "digital_output.h" // Nhúng file header của Digital Output
+#include "digital_output.h"
 
 // Hàm nội bộ (static): Trực tiếp xuất điện áp ra chân GPIO và cập nhật bộ đếm đóng cắt
 static void Output_WriteHardware(DigitalOutput *out, bool newState) {
-    // Nếu trạng thái mới giống hệt trạng thái hiện tại thì không cần xuất lại
     if (out->currentState == newState) return;
 
-    out->currentState = newState;       // Cập nhật trạng thái thực tế mới
-    out->lastSwitchMs = millis();       // Ghi nhận mốc thời gian vừa chuyển mạch
+    out->currentState = newState;       
+    out->lastSwitchMs = millis();       
 
-    // Nếu chuyển từ OFF sang ON -> Tăng số lần đóng cắt thêm 1
     if (newState == true) {
-        out->switchCount++;
-        out->lastSecTickMs = millis();  // Đặt lại mốc đếm giây chạy
+        out->switchCount++;             
+        out->lastSecTickMs = millis();  
     }
 
-    // Xác định mức điện áp xuất ra chân GPIO dựa trên cấu hình kích thấp (activeLow) hay kích cao
     uint8_t pinLevel = (out->activeLow) ? (!newState) : (newState);
     digitalWrite(out->pin, pinLevel);   // Xuất tín hiệu ra chân vi điều khiển
 }
 
+// Ngày weekday (1..7) có nằm trong dayMask không. weekday = 0 (chưa biết) -> coi như có.
+static bool daySelected(uint8_t mask, uint8_t weekday) {
+    if (weekday < 1 || weekday > 7) return true;
+    return (mask & (1 << (weekday - 1))) != 0;
+}
+
+// Ngày hôm trước của weekday (T2 -> CN). weekday = 0 giữ nguyên 0.
+static uint8_t prevDay(uint8_t weekday) {
+    if (weekday < 1 || weekday > 7) return 0;
+    return (weekday == 1) ? 7 : (weekday - 1);
+}
+
+// Khung giờ này có đang yêu cầu ON tại thời điểm hiện tại không
+static bool slotActive(const ScheduleSlot *s, uint16_t m, uint8_t weekday) {
+    if (!s->enabled || s->onMin == s->offMin) return false;
+
+    if (s->onMin < s->offMin) {
+        // Khung trong ngày (VD 06:00 -> 18:00)
+        return daySelected(s->dayMask, weekday) && m >= s->onMin && m < s->offMin;
+    }
+    // Khung qua nửa đêm (VD 22:00 -> 06:00)
+    if (m >= s->onMin) return daySelected(s->dayMask, weekday);
+    if (m < s->offMin) return daySelected(s->dayMask, prevDay(weekday));
+    return false;
+}
+
 // Hàm khởi tạo các thông số mặc định ban đầu cho đối tượng DigitalOutput
 void Output_Init(DigitalOutput *out, uint8_t id, uint8_t pin, bool activeLow) {
-    out->channelId = id;                // Gán số thứ tự kênh Relay (1..8)
-    out->pin = pin;                     // Gán chân GPIO điều khiển
-    out->activeLow = activeLow;         // Gán kiểu kích mức logic
+    out->channelId = id;
+    out->pin = pin;
+    out->activeLow = activeLow;
 
-    out->mode = OUT_MODE_MANUAL;        // Mặc định khởi động ở chế độ điều khiển tay (Manual)
-    out->currentState = false;          // Trạng thái thực tế ban đầu là OFF
-    out->requestState = false;          // Chưa có yêu cầu bật
-    out->isInterlocked = false;         // Không bị khóa chéo an toàn
+    out->mode = OUT_MODE_MANUAL;        // Mặc định khởi động ở chế độ điều khiển tay
+    out->currentState = false;
+    out->requestState = false;
+    out->isInterlocked = false;
 
-    out->minOffTimeMs = 5000;           // Mặc định bắt nghỉ tối thiểu 5 giây (5000ms) sau khi tắt mới cho bật lại
-    out->minOnTimeMs = 1000;            // Mặc định khi đã bật thì giữ tối thiểu 1 giây (1000ms)
-    out->maxRunTimeMs = 0;              // Mặc định 0 = Không giới hạn thời gian chạy tối đa
-    out->lastSwitchMs = 0;              // Mốc thời gian chuyển mạch ban đầu = 0
-    out->isTimeoutFault = false;        // Xóa cờ lỗi chạy quá giờ
+    out->minOffTimeMs = 5000;           // Nghỉ tối thiểu 5 giây giữa 2 lần bật
+    out->minOnTimeMs = 1000;            // Giữ ON tối thiểu 1 giây
+    out->maxRunTimeMs = 0;              // 0 = Không giới hạn thời gian chạy tối đa
+    out->lastSwitchMs = 0;
+    out->isTimeoutFault = false;
 
-    out->scheduleOnMin = 360;           // Giờ bật mặc định: 06h00 sáng (360 phút)
-    out->scheduleOffMin = 1080;         // Giờ tắt mặc định: 18h00 chiều (1080 phút)
-    out->pulseDurationMs = 2000;        // Độ rộng xung mặc định: Bật 2 giây (2000ms) rồi tự tắt
+    // Khung 1 mặc định: 06:00 -> 18:00 mọi ngày. Các khung còn lại để trống (tắt).
+    for (int i = 0; i < MAX_SCHEDULE_SLOTS; i++) {
+        out->slots[i].enabled = (i == 0);
+        out->slots[i].onMin = (i == 0) ? 360 : 0;
+        out->slots[i].offMin = (i == 0) ? 1080 : 0;
+        out->slots[i].dayMask = DAYS_ALL;
+    }
+    out->pulseDurationMs = 2000;        // Độ rộng xung mặc định 2 giây
 
-    out->switchCount = 0;               // Khởi tạo bộ đếm số lần đóng cắt = 0
-    out->totalRunSeconds = 0;           // Khởi tạo tổng số giây chạy = 0
-    out->lastSecTickMs = 0;             // Mốc đếm giây = 0
+    out->switchCount = 0;
+    out->totalRunSeconds = 0;
+    out->lastSecTickMs = 0;
 
-    pinMode(out->pin, OUTPUT);          // Cấu hình chân GPIO làm Output
-    // Đảm bảo ngay khi mới cấp nguồn, chân GPIO xuất mức điện áp TẮT Relay an toàn
+    // Ghi mức TẮT trước rồi mới đặt chế độ OUTPUT để tránh xung nhiễu lúc khởi động
     uint8_t safeLevel = (out->activeLow) ? HIGH : LOW;
+    digitalWrite(out->pin, safeLevel);
+    pinMode(out->pin, OUTPUT);
     digitalWrite(out->pin, safeLevel);
 }
 
-// Hàm nhận yêu cầu Bật/Tắt từ chương trình bên ngoài (chưa bật ngay mà chờ hàm UpdateLoop duyệt)
+// Đổi chế độ vận hành. Luôn xóa yêu cầu cũ và cờ lỗi để tránh relay "bật bất ngờ" sau khi đổi mode
+void Output_SetMode(DigitalOutput *out, OutputMode mode) {
+    out->mode = mode;
+    out->requestState = false;
+    out->isTimeoutFault = false;
+}
+
+// Hàm nhận yêu cầu Bật/Tắt từ chương trình bên ngoài
 bool Output_RequestSet(DigitalOutput *out, bool wantState) {
-    // Nếu đang ở chế độ Khóa cứng (DISABLE) hoặc đang bị Khóa an toàn (Interlock) thì từ chối lệnh BẬT
     if ((out->mode == OUT_MODE_DISABLE || out->isInterlocked) && wantState == true) {
-        return false;                   // Trả về false báo hiệu từ chối yêu cầu
+        return false;                   // Từ chối lệnh BẬT khi đang khóa
     }
 
-    out->requestState = wantState;      // Lưu yêu cầu vào biến chờ duyệt
+    out->requestState = wantState;
 
-    // Nếu người dùng chủ động gửi lệnh TẮT (false), cho phép xóa luôn cờ lỗi quá thời gian (nếu có)
+    // Lệnh OFF chủ động cho phép xóa cờ lỗi quá thời gian
     if (wantState == false) {
         out->isTimeoutFault = false;
     }
-    return true;                        // Trả về true báo hiệu đã tiếp nhận yêu cầu
+    return true;
 }
 
-// Hàm quét kiểm tra toàn bộ điều kiện bảo vệ, lịch trình và thực thi đóng cắt (Gọi liên tục trong loop)
-void Output_UpdateLoop(DigitalOutput *out, uint16_t currentMinuteOfDay) {
-    uint32_t now = millis();            // Lấy thời gian hệ thống hiện tại (ms)
+// Quét kiểm tra điều kiện bảo vệ, lịch trình và thực thi đóng cắt
+void Output_UpdateLoop(DigitalOutput *out, uint16_t currentMinuteOfDay, uint8_t weekday, bool timeValid) {
+    uint32_t now = millis();
 
-    // 1. ƯU TIÊN AN TOÀN CAO NHẤT: Nếu bị Disable hoặc Interlock -> Ngắt điện ngay lập tức
+    // ƯU TIÊN AN TOÀN CAO NHẤT: Disable hoặc Interlock -> Ngắt điện ngay lập tức
     if (out->mode == OUT_MODE_DISABLE || out->isInterlocked) {
         out->requestState = false;
         Output_WriteHardware(out, false);
-        return;                         // Thoát ngay, không xét các phần dưới
+        return;
     }
 
-    // 2. XỬ LÝ CHẾ ĐỘ HẸN GIỜ (SCHEDULE MODE)
+    // CHẾ ĐỘ HẸN GIỜ: BẬT nếu có ít nhất một khung giờ đang kích hoạt
     if (out->mode == OUT_MODE_SCHEDULE) {
-        // Nếu thời gian hiện tại nằm trong khung giờ hẹn -> Tự động đặt yêu cầu BẬT
-        if (currentMinuteOfDay >= out->scheduleOnMin && currentMinuteOfDay < out->scheduleOffMin) {
-            out->requestState = true;
-        } else {
-            out->requestState = false;
+        bool want = false;
+        if (timeValid) {
+            for (int i = 0; i < MAX_SCHEDULE_SLOTS; i++) {
+                if (slotActive(&out->slots[i], currentMinuteOfDay, weekday)) { want = true; break; }
+            }
         }
+        // timeValid == false -> want = false -> giữ relay TẮT cho an toàn
+        out->requestState = want;
     }
 
-    // 3. KIỂM TRA BẢO VỆ CHẠY QUÁ THỜI GIAN TỐI ĐA (Max Run Time Protection)
+    //BẢO VỆ CHẠY QUÁ THỜI GIAN TỐI ĐA
     if (out->currentState == true && out->maxRunTimeMs > 0) {
         if (now - out->lastSwitchMs >= out->maxRunTimeMs) {
-            out->isTimeoutFault = true;       // Bật cờ báo lỗi quá thời gian chạy
-            out->requestState = false;        // Hủy yêu cầu chạy
-            Output_WriteHardware(out, false); // Cưỡng bức tắt Relay để bảo vệ thiết bị
+            out->isTimeoutFault = true;
+            out->requestState = false;
+            Output_WriteHardware(out, false);
             return;
         }
     }
 
-    // 4. XỬ LÝ CHẾ ĐỘ TẠO XUNG (PULSE MODE)
+    // CHẾ ĐỘ TẠO XUNG
     if (out->mode == OUT_MODE_PULSE && out->currentState == true) {
-        // Khi đã giữ ON đủ khoảng thời gian pulseDurationMs -> Tự động tắt
         if (now - out->lastSwitchMs >= out->pulseDurationMs) {
             out->requestState = false;
             Output_WriteHardware(out, false);
@@ -107,27 +143,23 @@ void Output_UpdateLoop(DigitalOutput *out, uint16_t currentMinuteOfDay) {
         }
     }
 
-    // 5. KIỂM TRA THỜI GIAN TRỄ BẢO VỆ (minOffTimeMs & minOnTimeMs) TRƯỚC KHI ĐÓNG/NGẮT THẬT
-    // Trường hợp đang TẮT và có yêu cầu muốn BẬT:
+    // THỜI GIAN TRỄ BẢO VỆ (minOffTimeMs & minOnTimeMs)
     if (out->currentState == false && out->requestState == true && !out->isTimeoutFault) {
-        // Chỉ cho bật nếu đây là lần bật đầu tiên (switchCount == 0) HOẶC đã nghỉ đủ thời gian minOffTimeMs
         if (out->switchCount == 0 || (now - out->lastSwitchMs >= out->minOffTimeMs)) {
-            Output_WriteHardware(out, true);  // Đủ điều kiện -> Đóng Relay
+            Output_WriteHardware(out, true);
         }
     }
-    // Trường hợp đang BẬT và có yêu cầu muốn TẮT:
     else if (out->currentState == true && out->requestState == false) {
-        // Chỉ cho tắt nếu đã chạy đủ thời gian giữ tối thiểu minOnTimeMs
         if (now - out->lastSwitchMs >= out->minOnTimeMs) {
-            Output_WriteHardware(out, false); // Đủ điều kiện -> Ngắt Relay
+            Output_WriteHardware(out, false);
         }
     }
 
-    // 6. CẬP NHẬT THỐNG KÊ TỔNG THỜI GIAN HOẠT ĐỘNG (Tính bằng giây)
+    // THỐNG KÊ TỔNG THỜI GIAN HOẠT ĐỘNG
     if (out->currentState == true) {
         if (now - out->lastSecTickMs >= 1000) {
-            out->totalRunSeconds++;           // Cộng thêm 1 giây vào tổng thời gian chạy
-            out->lastSecTickMs += 1000;       // Dịch mốc thời gian thêm 1000ms
+            out->totalRunSeconds++;
+            out->lastSecTickMs += 1000;
         }
     }
 }

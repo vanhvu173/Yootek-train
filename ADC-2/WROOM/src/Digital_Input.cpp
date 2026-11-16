@@ -1,16 +1,15 @@
-#include "Digital_Input.h" // Nhúng file header của Digital Input
+#include "Digital_Input.h" 
 
 // Hàm khởi tạo giá trị mặc định và cấu hình chân cho DigitalInput
 void DigitalIn_Init(DigitalInput *in, uint8_t pin, uint8_t pullMode, bool invertLogic) {
-    in->pin = pin;                      // Lưu chân GPIO
-    in->pullMode = pullMode;            // Lưu chế độ điện trở kéo
-    in->invertLogic = invertLogic;      // Lưu cấu hình đảo logic
-
-    // Cài đặt các thông số thời gian mặc định 
-    in->debounceMs = 30;                // Chống rung phím 
-    in->onDelayMs = 0;                  
-    in->offDelayMs = 0;                 
-    in->holdTimeMs = 2000;              // Nhấn giữ trên 2 giây thì báo Long Press
+    in->pin = pin;                      
+    in->pullMode = pullMode;            
+    in->invertLogic = invertLogic;      
+    // Cài đặt các thông số thời gian mặc định
+    in->debounceMs = 30;                
+    in->onDelayMs = 0;
+    in->offDelayMs = 0;
+    in->holdTimeMs = 2000;              
 
     pinMode(in->pin, in->pullMode);
     // Đọc trạng thái thực tế ngay lúc khởi động để làm mốc ban đầu
@@ -24,7 +23,7 @@ void DigitalIn_Init(DigitalInput *in, uint8_t pin, uint8_t pullMode, bool invert
     in->stableState = initVal;          // Gán trạng thái sạch ban đầu
     in->risingEdge = false;             // Xóa cờ sườn lên
     in->fallingEdge = false;            // Xóa cờ sườn xuống
-    in->isLongPressed = false;          // Xóa cờ nhấn giữ lâu
+    in->isLongPressed = false;          // Xóa nhấn giữ lâu
     in->pulseCounter = 0;               // Đặt bộ đếm xung về 0
     in->lastRawChangeMs = millis();     // Lấy mốc thời gian hiện tại
     in->stableOnStartMs = millis();     // Lấy mốc thời gian hiện tại
@@ -32,7 +31,7 @@ void DigitalIn_Init(DigitalInput *in, uint8_t pin, uint8_t pullMode, bool invert
 
 // Hàm quét cập nhật trạng thái ngõ vào số
 void DigitalIn_UpdateLoop(DigitalInput *in) {
-    uint32_t now = millis();            // Lấy thời gian hệ thống hiện tại 
+    uint32_t now = millis();
 
     in->risingEdge = false;
     in->fallingEdge = false;
@@ -46,8 +45,8 @@ void DigitalIn_UpdateLoop(DigitalInput *in) {
 
     // Nếu trạng thái thô thay đổi so với lần đọc trước
     if (in->rawState != in->lastRawState) {
-        in->lastRawChangeMs = now;       // Đặt lại mốc thời gian bắt đầu kiểm tra độ ổn định
-        in->lastRawState = in->rawState; // Lưu lại trạng thái thô mới
+        in->lastRawChangeMs = now;       
+        in->lastRawState = in->rawState; 
     }
     // Tính khoảng thời gian mà tín hiệu đã giữ nguyên liên tục không đổi
     uint32_t stableDuration = now - in->lastRawChangeMs;
@@ -55,28 +54,28 @@ void DigitalIn_UpdateLoop(DigitalInput *in) {
     if (in->rawState != in->stableState) {
         // Muốn chuyển từ OFF -> ON: Phải giữ ổn định vượt qua (debounceMs + onDelayMs)
         if (in->rawState == true && stableDuration >= (in->debounceMs + in->onDelayMs)) {
-            in->stableState = true;    
-            in->risingEdge = true;       
-            in->stableOnStartMs = now;   
-            in->pulseCounter++;         
+            in->stableState = true;
+            in->risingEdge = true;
+            in->stableOnStartMs = now;
+            in->pulseCounter++;
         }
-        // Muốn chuyển từ ON -> OFF: Phải giữ ổn định vượt qua (debounceMs + offDelayMs)
+        //ON -> OFF
         else if (in->rawState == false && stableDuration >= (in->debounceMs + in->offDelayMs)) {
-            in->stableState = false;     
-            in->fallingEdge = true;      
-            in->isLongPressed = false;   
+            in->stableState = false;
+            in->fallingEdge = true;
+            in->isLongPressed = false;
         }
     }
 
     // Kiểm tra điều kiện Long Press khi đang ở trạng thái ON
     if (in->stableState == true && !in->isLongPressed) {
         if (now - in->stableOnStartMs >= in->holdTimeMs) {
-            in->isLongPressed = true;    // Bật cờ báo đã giữ nút vượt thời gian quy định
+            in->isLongPressed = true;  
         }
     }
 }
 
 // Hàm xóa bộ đếm xung về 0 khi cần
 void DigitalIn_ResetCounter(DigitalInput *in) {
-    in->pulseCounter = 0;                // Đặt lại bộ đếm số lần kích hoạt về 0
+    in->pulseCounter = 0;                
 }

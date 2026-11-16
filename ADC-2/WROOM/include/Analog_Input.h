@@ -14,26 +14,26 @@ enum AlarmState {
 };
 
 struct AnalogInput {
-    // Cấu hình phần cứng & Chu kỳ lấy mẫu 
-    uint8_t pin;                // Chân GPIO đọc ADC 
+    // Cấu hình phần cứng & Chu kỳ lấy mẫu
+    uint8_t pin;                // Chân GPIO đọc ADC
     uint32_t sampleIntervalMs;  // Thời gian giữa 2 lần đọc ADC liên tiếp
     uint32_t lastSampleMs;      // Mốc thời gian của lần lấy mẫu gần nhất
 
     // Giá trị ADC & Tham số Lọc nhiễu (Filtering)
-    uint16_t rawAdc;            // Giá trị ADC thô đọc trực tiếp từ phần cứng 
+    uint16_t rawAdc;            // Giá trị ADC thô đọc trực tiếp từ phần cứng
     float filteredAdc;          // Giá trị ADC sau khi đã làm mượt bằng bộ lọc EMA
     float filterAlpha;          // Hệ số lọc EMA (0.01 -> 1.0)
     float deadband;             // Vùng chết: Nếu kết quả thay đổi nhỏ hơn thì giữ nguyên số cũ
     bool isFirstSample;         // Cờ đánh dấu lần đọc đầu tiên khi mới cấp nguồn
 
     // Quy đổi đơn vị thực tế (Scaling) & Hiệu chuẩn (Calibration)
-    uint16_t adcMin;            // Giá trị ADC tương ứng với mức thấp nhất của cảm biến 
+    uint16_t adcMin;            // Giá trị ADC tương ứng với mức thấp nhất của cảm biến
     uint16_t adcMax;            // Giá trị ADC tương ứng với mức cao nhất của cảm biến
-    float engMin;               // Giá trị vật lý thấp nhất 
-    float engMax;               // Giá trị vật lý cao nhất 
-    float calibScale;           // Hệ số nhân hiệu chuẩn độ nghiêng 
-    float calibOffset;          // Độ lệch cộng bù hiệu chuẩn sai số tĩnh 
-    float engineeringValue;     // GIÁ TRỊ ĐO CUỐI CÙNG 
+    float engMin;               // Giá trị vật lý thấp nhất
+    float engMax;               // Giá trị vật lý cao nhất
+    float calibScale;           // Hệ số nhân hiệu chuẩn độ nghiêng
+    float calibOffset;          // Độ lệch cộng bù hiệu chuẩn sai số tĩnh
+    float engineeringValue;     // GIÁ TRỊ ĐO CUỐI CÙNG
 
     // Cảnh báo ngưỡng (Alarms) & Độ trễ chống dao động (Hysteresis)
     float highCritThreshold;    // Ngưỡng báo động nguy hiểm mức CAO
