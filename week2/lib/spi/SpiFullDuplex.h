@@ -6,9 +6,9 @@
 // Gói tin trao đổi song công cố định kích thước
 #pragma pack(push, 1)
 typedef struct {
-    uint8_t packetId;
+    uint8_t  packetId;
     uint16_t sensorValue;
-    uint8_t statusFlag;
+    uint8_t  statusFlag;
 } SpiPacket_t;
 #pragma pack(pop)
 

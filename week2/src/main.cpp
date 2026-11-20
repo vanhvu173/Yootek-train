@@ -5,7 +5,7 @@
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("=== KHOI DONG HE THONG DA GIAO THUC ===");
+    Serial.println("=== KHOI DONG HE THONG DA GIAO THUC (MASTER) ===");
 
     UartRelay_Init();
     SpiFullDuplex_Init();
